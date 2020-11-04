@@ -9,12 +9,16 @@
 #include <string>
 #include <thread>
 
+#include <iostream>
+
 namespace Afina {
 namespace Concurrency {
 
 /**
  * # Thread pool
  */
+class Executor;
+void perform(Executor * exec);
 class Executor {
     enum class State {
         // Threadpool is fully operational, tasks could be added and get executed
@@ -28,7 +32,12 @@ class Executor {
         kStopped
     };
 
-    Executor(std::string name, int size);
+public:
+    /**
+     * Main function that all pool threads are running. It polls internal task queue and execute tasks
+     */
+    friend void perform(Executor *executor);
+    Executor(std::size_t low_watermark=2, std::size_t hight_watermark=7, std::size_t max_queue_size = 10, std::size_t idle_time = 1000);
     ~Executor();
 
     /**
@@ -50,28 +59,37 @@ class Executor {
         // Prepare "task"
         auto exec = std::bind(std::forward<F>(func), std::forward<Types>(args)...);
 
+        std::cout << "Execute\n";
+
         std::unique_lock<std::mutex> lock(this->mutex);
         if (state != State::kRun) {
             return false;
         }
 
-        // Enqueue new task
-        tasks.push_back(exec);
+        if (tasks.size() < _max_queue_size)
+        {
+            tasks.push_back(exec);
+        }
+        else
+        {
+            return false;
+        }
+
+        if (_free_threads == 0 && _active_threads<_hight_watermark)
+        {
+//            std::thread th(perform, this);
+//            _free_threads++;
+//            th.detach();
+        }
         empty_condition.notify_one();
         return true;
     }
-
 private:
     // No copy/move/assign allowed
     Executor(const Executor &);            // = delete;
     Executor(Executor &&);                 // = delete;
     Executor &operator=(const Executor &); // = delete;
     Executor &operator=(Executor &&);      // = delete;
-
-    /**
-     * Main function that all pool threads are running. It polls internal task queue and execute tasks
-     */
-    friend void perform(Executor *executor);
 
     /**
      * Mutex to protect state below from concurrent modification
@@ -97,6 +115,12 @@ private:
      * Flag to stop bg threads
      */
     State state;
+    std::size_t _low_watermark;
+    std::size_t _hight_watermark;
+    std::size_t _max_queue_size;
+    std::size_t _idle_time;
+    std::size_t _active_threads;
+    std::size_t _free_threads;
 };
 
 } // namespace Concurrency
