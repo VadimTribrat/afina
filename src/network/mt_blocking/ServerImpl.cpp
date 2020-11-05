@@ -22,10 +22,13 @@
 #include <afina/logging/Service.h>
 
 #include "protocol/Parser.h"
+#include <afina/concurrency/Executor.h>
 
 namespace Afina {
 namespace Network {
 namespace MTblocking {
+    
+void client_thread_function1(int client_socket, std::shared_ptr<Afina::Storage> pStorage, std::shared_ptr<spdlog::logger> _logger, std::atomic<bool> &running);
 
 // See Server.h
 ServerImpl::ServerImpl(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Logging::Service> pl) : Server(ps, pl), _server_socket(0) {}
@@ -135,28 +138,22 @@ void ServerImpl::OnRun() {
         // Configure read timeout
         {
             struct timeval tv;
-            tv.tv_sec = 20; // TODO: make it configurable
+            tv.tv_sec = 1; // TODO: make it configurable
             tv.tv_usec = 0;
             setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
         }
 
-        {
-            std::unique_lock<std::mutex> lock(m);
-            if (sockets.size() < n_workers) {
-                sockets.insert(client_socket);
-                std::thread(&ServerImpl::client_thread_function, this, client_socket).detach();
-            } else {
-                //_logger->error("Too many clieant connections");
-                close(client_socket);
-            }
+        if (!thread_pool.Execute(client_thread_function1, client_socket, pStorage, _logger, std::ref(running))) {
+            std::cout << "Close\n";
+            close(client_socket);
         }
     }
-
-    // Cleanup on exit...
+    close(_server_socket);
+    thread_pool.Stop(true);
     _logger->warn("Network stopped");
 }
 
-void ServerImpl::client_thread_function(int client_socket)
+void client_thread_function1(int client_socket, std::shared_ptr<Afina::Storage> pStorage, std::shared_ptr<spdlog::logger> _logger, std::atomic<bool> &running)
 {
     std::size_t arg_remains;
     Protocol::Parser parser;
@@ -242,11 +239,9 @@ void ServerImpl::client_thread_function(int client_socket)
         _logger->error("Failed to process connection on descriptor {}: {}", client_socket, ex.what());
     }
     close(client_socket);
-    std::unique_lock<std::mutex> lock(m);
-    sockets.erase(client_socket);
-    if (sockets.empty()) {
-        cv.notify_all();
-    }
+    command_to_execute.reset();
+    argument_for_command.resize(0);
+    parser.Reset();
     
 }
 

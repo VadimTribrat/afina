@@ -7,6 +7,7 @@
 #include <set>
 
 #include <afina/network/Server.h>
+#include <afina/concurrency/Executor.h>
 
 namespace spdlog {
 class logger;
@@ -61,6 +62,7 @@ private:
     std::mutex m;
     int n_accept;
     int n_workers;
+    Afina::Concurrency::Executor thread_pool;
 };
 
 } // namespace MTblocking

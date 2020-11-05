@@ -37,7 +37,7 @@ public:
      * Main function that all pool threads are running. It polls internal task queue and execute tasks
      */
     friend void perform(Executor *executor);
-    Executor(std::size_t low_watermark=2, std::size_t hight_watermark=7, std::size_t max_queue_size = 10, std::size_t idle_time = 1000);
+    Executor(std::size_t low_watermark=2, std::size_t hight_watermark=4, std::size_t max_queue_size = 10, std::size_t idle_time = 5000);
     ~Executor();
 
     /**
@@ -59,7 +59,7 @@ public:
         // Prepare "task"
         auto exec = std::bind(std::forward<F>(func), std::forward<Types>(args)...);
 
-        std::cout << "Execute\n";
+        std::cout << "Execute\n" << "Number of thread: " << _free_threads + _active_threads << " Tasks in size: " << tasks.size() << "\n";
 
         std::unique_lock<std::mutex> lock(this->mutex);
         if (state != State::kRun) {
@@ -75,11 +75,11 @@ public:
             return false;
         }
 
-        if (_free_threads == 0 && _active_threads<_hight_watermark)
+        if (_free_threads == 0 && _active_threads + _free_threads<_hight_watermark)
         {
-//            std::thread th(perform, this);
-//            _free_threads++;
-//            th.detach();
+            std::thread th(perform, this);
+            _free_threads++;
+            th.detach();
         }
         empty_condition.notify_one();
         return true;
@@ -102,11 +102,6 @@ private:
     std::condition_variable empty_condition;
 
     /**
-     * Vector of actual threads that perorm execution
-     */
-    std::vector<std::thread> threads;
-
-    /**
      * Task queue
      */
     std::deque<std::function<void()>> tasks;
@@ -118,7 +113,7 @@ private:
     std::size_t _low_watermark;
     std::size_t _hight_watermark;
     std::size_t _max_queue_size;
-    std::size_t _idle_time;
+    std::chrono::milliseconds _idle_time;
     std::size_t _active_threads;
     std::size_t _free_threads;
 };
